@@ -1,0 +1,216 @@
+Install UV
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Check UV Version
+
+Create new project
+
+cd SecRAG
+uv init
+
+Create the environment
+
+uv venv
+
+Activate the environment
+
+source .venv/bin/activate
+
+uv add langchain anthropic voyageai qdrant-client pymupdf beautifulsoup4
+
+
+
+docker run -d \
+--name secRAG-db \
+-e POSTGRES_USER=admin \
+-e POSTGRES_PASSWORD=admin123 \
+-e POSTGRES_DB=secRAG \
+-p 5433:5432 \
+postgres
+
+docker exec -it secRAG-db psql -U admin -d secRAG
+
+# SecRAG – FastAPI Startup Issue
+
+## Problem
+
+When starting the FastAPI server using:
+
+```
+uv run uvicorn secrag.main:app --reload --app-dir src
+```
+
+the following error occurred:
+
+```
+ERROR: Error loading ASGI app. Attribute "app" not found in module "secrag.main".
+```
+
+While testing the import directly:
+
+```
+uv run python -c "from secrag.main import app; print(app)"
+```
+
+the error was:
+
+```
+ImportError: cannot import name 'app' from 'secrag.main'
+```
+
+---
+
+# Root Cause
+
+Two issues were identified:
+
+## 1. Python package path issue (src layout)
+
+The project follows the **src layout**:
+
+```
+SecRAG
+├── pyproject.toml
+└── src
+    └── secrag
+        └── main.py
+```
+
+In this structure, Python cannot import `secrag` unless the package is installed or the `src` directory is added to the Python path.
+
+Because of this, Python initially could not resolve the `secrag` module.
+
+---
+
+## 2. Missing FastAPI `app` object
+
+The file `main.py` did not expose a global variable named `app`.
+
+Uvicorn expects the application entrypoint in this format:
+
+```
+module:variable
+```
+
+Example:
+
+```
+secrag.main:app
+```
+
+Therefore the file must contain:
+
+```
+app = FastAPI(...)
+```
+
+If the file only defines a function such as:
+
+```
+def create_app():
+```
+
+without assigning it to `app`, Uvicorn cannot locate the ASGI application.
+
+---
+
+# Resolution
+
+## Step 1 – Install the project locally
+
+Install the project in editable mode so Python can resolve the package.
+
+```
+uv pip install -e .
+```
+
+This registers the package `secrag` in the Python environment.
+
+---
+
+## Step 2 – Ensure package initialization
+
+Create the package initializer:
+
+```
+src/secrag/__init__.py
+```
+
+---
+
+## Step 3 – Define the FastAPI application
+
+`src/secrag/main.py`
+
+```
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="SecRAG",
+    version="0.1.0"
+)
+
+@app.get("/")
+def health():
+    return {"status": "SecRAG running"}
+```
+
+---
+
+## Step 4 – Verify import
+
+```
+uv run python -c "from secrag.main import app; print(app)"
+```
+
+Expected output:
+
+```
+<fastapi.applications.FastAPI object at ...>
+```
+
+---
+
+## Step 5 – Start the server
+
+```
+uv run uvicorn secrag.main:app --reload
+```
+
+Server should start successfully:
+
+```
+INFO: Uvicorn running on http://127.0.0.1:8000
+```
+
+---
+
+# Final Working Project Structure
+
+```
+SecRAG
+├── pyproject.toml
+├── src
+│   └── secrag
+│       ├── __init__.py
+│       ├── main.py
+│       ├── api
+│       ├── core
+│       ├── ingestion
+│       └── models
+└── uv.lock
+```
+
+---
+
+# Key Takeaways
+
+1. When using the **src layout**, the project must be installed (`pip install -e .`).
+2. Uvicorn requires a **global ASGI app variable**.
+3. The module path in Uvicorn must match the actual package structure.
+
+---
+
+
+I want to develop a Fast API application to ingest the logs to postgres db of cloud trail, guard duty, andvpc flow logs. Don't give all details at a time, I need to test each then we can goe to next. Lets first create the fast api project. am using uv for package manager. My ultimate aim is to build an RAG with evaulation for analysising the logs and generate report. Project name is SecRAG. I want to use graphql for api and postgres for docker run -d \ --name secRAG-db \ -e POSTGRES_USER=admin \ -e POSTGRES_PASSWORD=admin123 \ -e POSTGRES_DB=secRAG \ -p 5433:5432 \ postgres
